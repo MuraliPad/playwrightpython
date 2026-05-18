@@ -1,0 +1,24 @@
+# ============================================================
+#  MiO-X Playwright Python Framework – Dependencies
+#  Install: pip install -r requirements.txt
+#           playwright install chromium
+# ============================================================
+
+# ── Core test runner ──────────────────────────────────────
+pytest>=7.4.0
+pytest-playwright>=0.4.3       # Playwright plugin for pytest
+playwright>=1.43.0             # Playwright itself
+
+# ── Parallel execution ────────────────────────────────────
+pytest-xdist>=3.3.1            # parallel tests via -n auto
+
+# ── Reporting ─────────────────────────────────────────────
+allure-pytest>=2.13.2          # Allure report listener
+pytest-html>=4.1.1             # HTML report fallback
+
+# ── API testing ───────────────────────────────────────────
+requests>=2.31.0               # HTTP client for API layer
+
+# ── Utilities ─────────────────────────────────────────────
+python-dotenv>=1.0.0           # load .env for secrets
+pytest-rerunfailures>=13.0     # auto-retry flaky tests
