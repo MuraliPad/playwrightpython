@@ -31,8 +31,6 @@ from playwright.sync_api import (
     Browser,
     BrowserContext,
     Page,
-    Playwright,
-    sync_playwright,
 )
 
 from config.env_config import get_env_config, EnvConfig
@@ -44,12 +42,29 @@ from config.settings import Settings, settings as _settings
 # ══════════════════════════════════════════════════════════════════
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    parser.addoption("--env",       default="dev",       help="Environment: dev|sit|uat|prod")
-    parser.addoption("--browser-type", default="chromium", help="Browser: chromium|firefox|webkit")
-    parser.addoption("--headed",    action="store_true", default=False, help="Run headed (visible browser)")
-    parser.addoption("--slow-mo",   type=int, default=0, help="Slow motion ms between actions")
-    parser.addoption("--use-remote",action="store_true", default=False, help="Use remote Selenium/CDP")
-    parser.addoption("--remote-url",default="http://localhost:4444/wd/hub", help="Remote Grid URL")
+    # ── Custom options only ───────────────────────────────────────────
+    # DO NOT re-register options that pytest-playwright already provides:
+    #   --headed      → use as-is  (pytest-playwright built-in)
+    #   --browser     → use as-is  (pytest-playwright built-in, values: chromium|firefox|webkit)
+    #   --slowmo      → use as-is  (pytest-playwright built-in)
+    # Registering them again causes:
+    #   ArgumentError: argument --headed: conflicting option string
+    parser.addoption(
+        "--env",
+        default="dev",
+        help="Target environment: dev | sit | uat | prod",
+    )
+    parser.addoption(
+        "--use-remote",
+        action="store_true",
+        default=False,
+        help="Connect to a remote Selenium Grid / CDP endpoint",
+    )
+    parser.addoption(
+        "--remote-url",
+        default="http://localhost:4444/wd/hub",
+        help="Remote Grid URL (used when --use-remote is set)",
+    )
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -58,12 +73,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 @pytest.fixture(scope="session")
 def settings(request: pytest.FixtureRequest) -> Settings:
-    """Apply CLI options onto the settings singleton."""
+    """Apply CLI options onto the settings singleton.
+
+    NOTE: --headed, --browser, --slowmo are pytest-playwright built-ins.
+    We read only our custom options here: --env, --use-remote, --remote-url.
+    The browser/headless state is managed by pytest-playwright's own fixtures.
+    """
     s = _settings
     s.env        = request.config.getoption("--env")
-    s.browser    = request.config.getoption("--browser-type")
-    s.headless   = not request.config.getoption("--headed")
-    s.slow_mo    = request.config.getoption("--slow-mo")
     s.use_remote = request.config.getoption("--use-remote")
     s.remote_url = request.config.getoption("--remote-url")
     s.screenshot_dir.mkdir(parents=True, exist_ok=True)
@@ -142,31 +159,30 @@ def api_session(settings: Settings, env_cfg: EnvConfig) -> Generator[requests.Se
 
 @pytest.fixture(scope="function")
 def browser_context(
+    browser: Browser,          # ← pytest-playwright built-in fixture
     settings: Settings,
     env_cfg: EnvConfig,
 ) -> Generator[BrowserContext, None, None]:
     """
     Fresh Playwright BrowserContext per test.
+    Uses the `browser` fixture from pytest-playwright so --headed,
+    --browser chromium|firefox|webkit and --slowmo all work correctly.
     Injects localStorage/sessionStorage tokens from storage.json
-    so SSO is active when the page first loads.
+    so SSO is active before the first page.goto() runs.
     """
-    with sync_playwright() as pw:
-        browser = _launch_browser(pw, settings)
-        context = browser.new_context(
-            viewport={"width": settings.viewport_width, "height": settings.viewport_height},
-            base_url=env_cfg.ui,
-            ignore_https_errors=True,
-        )
-        context.set_default_timeout(settings.default_timeout)
-        context.set_default_navigation_timeout(settings.page_timeout)
+    context = browser.new_context(
+        viewport={"width": settings.viewport_width, "height": settings.viewport_height},
+        base_url=env_cfg.ui,
+        ignore_https_errors=True,
+    )
+    context.set_default_timeout(settings.default_timeout)
+    context.set_default_navigation_timeout(settings.page_timeout)
 
-        # Inject SSO tokens before any page opens
-        _inject_sso(context, settings, env_cfg)
+    # Inject SSO tokens before any page opens
+    _inject_sso(context, settings, env_cfg)
 
-        yield context
-
-        context.close()
-        browser.close()
+    yield context
+    context.close()
 
 
 @pytest.fixture(scope="function")
@@ -183,23 +199,6 @@ def page(browser_context: BrowserContext) -> Generator[Page, None, None]:
 # ══════════════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════════════
-
-def _launch_browser(pw: Playwright, settings: Settings) -> Browser:
-    """Launch local or remote browser based on settings."""
-    browser_type = getattr(pw, settings.browser)   # pw.chromium / pw.firefox / pw.webkit
-
-    launch_args = dict(
-        headless = settings.headless,
-        slow_mo  = settings.slow_mo,
-    )
-
-    if settings.use_remote:
-        # Connect to a remote Selenium Grid or CDP endpoint
-        # For Playwright remote use CDP URL: ws://<host>:4444/...
-        return browser_type.connect_over_cdp(settings.remote_url)
-
-    return browser_type.launch(**launch_args)
-
 
 def _inject_sso(
     context: BrowserContext,

@@ -64,10 +64,12 @@ echo.
 REM ── Build pytest command ───────────────────────────────────
 set BASE_CMD=pytest ^
     --env !ENV! ^
-    --browser-type !BROWSER! ^
+    --browser !BROWSER! ^
     !HEADED! ^
     !REMOTE! ^
-    --remote-url !REMOTE_URL!
+    --remote-url !REMOTE_URL! ^
+    --alluredir=!OUTPUT!llure ^
+    --clean-alluredir
 
 REM Add tags
 if not "!TAGS!"=="" set BASE_CMD=!BASE_CMD! -m "!TAGS!"
