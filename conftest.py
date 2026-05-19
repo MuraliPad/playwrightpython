@@ -11,8 +11,19 @@ Fixture hierarchy:
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Generator
+
+# ── Ensure project root is on sys.path ────────────────────────────
+# This guarantees that imports like:
+#   from resources.api.api_client import ApiClient
+#   from config.env_config import get_env_config
+# work correctly regardless of which directory pytest is invoked from.
+# pytest.ini pythonpath=. handles the normal case; this is a safety net.
+PROJECT_ROOT = Path(__file__).parent.resolve()
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import pytest
 import requests
