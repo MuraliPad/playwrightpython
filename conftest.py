@@ -241,13 +241,31 @@ def _inject_sso(
     settings: Settings,
     env_cfg: EnvConfig,
 ) -> None:
-    """Auto-detect storage.json or cookies.json and inject SSO."""
+    """
+    Inject SSO tokens into the browser context.
+
+    Controlled by INJECT_SSO in .env or environment variable:
+        INJECT_SSO=true  → inject localStorage/cookies (remote browser, Jenkins)
+        INJECT_SSO=false → skip injection (local Chrome with existing session)
+
+    Local run with BROWSER_CHANNEL=chrome:
+        Your Chrome already has the SSO session active – no injection needed.
+        Set INJECT_SSO=false in .env.
+
+    Remote / Jenkins run:
+        Browser is fresh with no session – injection required.
+        Set INJECT_SSO=true in .env.
+    """
+    if not settings.inject_sso:
+        print("\n SSO injection skipped (INJECT_SSO=false) – using existing browser session")
+        return
+
     if settings.storage_file.exists():
         _inject_storage(context, settings.storage_file)
     elif settings.cookies_file.exists():
         _inject_cookies(context, settings.cookies_file, env_cfg.ui)
     else:
-        print("\n No storage.json or cookies.json – SSO button click needed")
+        print("\n No storage.json or cookies.json found – SSO button click needed")
 
 
 def _inject_storage(context: BrowserContext, storage_file: Path) -> None:
