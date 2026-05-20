@@ -1,33 +1,27 @@
 """
 Root conftest.py — pytest fixtures shared across all test modules.
 
-Fixture hierarchy:
-    settings                 – global config singleton
-    env_cfg                  – resolved UI + API URLs for current ENV
-    api_session              – authenticated requests.Session (Bearer token)
-    browser_type_launch_args – overrides how pytest-playwright launches browser
-                               (channel, executable_path, headless handled here)
-    browser_context          – Playwright BrowserContext (storage injected)
-    page                     – Playwright Page (one per test)
+── BROWSER CHANNEL (for VDI / no internet) ──────────────────────────
+To use your locally installed Chrome or Edge instead of Playwright's
+bundled browser, set BROWSER_CHANNEL in your .env file:
 
-── BROWSER CONFIGURATION ────────────────────────────────────────────
-The correct place to set channel / executable_path / headless in
-pytest-playwright is the `browser_type_launch_args` fixture.
-pytest-playwright reads this fixture automatically when launching.
+    BROWSER_CHANNEL=chrome       uses installed Google Chrome
+    BROWSER_CHANNEL=msedge       uses installed Microsoft Edge
 
-Use local installed Chrome (VDI with no internet for playwright install):
-    Method A – channel (Chrome must be installed):
-        pytest --env dev --browser chromium
-        # set BROWSER_CHANNEL=chrome  in .env  OR
-        # pytest ... (channel is read from settings.browser_channel)
+Do NOT pass --browser-channel on the CLI. pytest-playwright already
+owns that flag and re-registering it causes:
+    ArgumentError: conflicting option string: --browser-channel
 
-    Method B – explicit exe path:
-        set PLAYWRIGHT_EXECUTABLE_PATH=C:/Program Files/Google/Chrome/Application/chrome.exe
-        pytest --env dev --browser chromium
+── CUSTOM CLI OPTIONS (safe to add) ─────────────────────────────────
+    --env           dev | sit | uat | prod
+    --use-remote    connect to remote Grid
+    --remote-url    Grid endpoint URL
 
-    Method C – use Edge (always installed on Windows VDI):
-        set PLAYWRIGHT_EXECUTABLE_PATH=C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe
-        pytest --env dev --browser chromium
+── pytest-playwright BUILT-IN OPTIONS (do not re-register) ──────────
+    --browser       chromium | firefox | webkit
+    --headed        show browser window
+    --slowmo        ms delay between actions
+    --browser-channel  already registered by pytest-playwright
 """
 
 import json
@@ -37,20 +31,16 @@ from pathlib import Path
 from typing import Any, Dict, Generator
 
 # ── PROJECT ROOT ──────────────────────────────────────────────────
-# Must be set BEFORE any other imports so sys.path is correct
-# and dotenv can find the .env file.
 PROJECT_ROOT = Path(__file__).parent.resolve()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# ── Load .env file ─────────────────────────────────────────────────
-# Loads PLAYWRIGHT_EXECUTABLE_PATH, BROWSER_CHANNEL, ENV etc.
-# from .env before anything else. Safe if .env does not exist.
+# ── Load .env ─────────────────────────────────────────────────────
 try:
     from dotenv import load_dotenv
     load_dotenv(PROJECT_ROOT / ".env", override=False)
 except ImportError:
-    pass  # python-dotenv not installed – use system env vars only
+    pass
 
 import pytest
 import requests
@@ -61,39 +51,20 @@ from config.settings import Settings, settings as _settings
 
 
 # ══════════════════════════════════════════════════════════════════
-# CLI OPTIONS  (custom only – do not duplicate pytest-playwright ones)
+# CUSTOM CLI OPTIONS  ← only --env, --use-remote, --remote-url
 # ══════════════════════════════════════════════════════════════════
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """
-    Register ONLY custom CLI options.
-
-    pytest-playwright already registers:
-        --browser   chromium | firefox | webkit
-        --headed    show the browser window
-        --slowmo    ms delay between actions
-    Adding them again causes: ArgumentError: conflicting option string
-    """
     parser.addoption(
         "--env",
         default=os.getenv("ENV", "dev"),
         help="Target environment: dev | sit | uat | prod",
     )
     parser.addoption(
-        "--browser-channel",
-        default=os.getenv("BROWSER_CHANNEL", ""),
-        help=(
-            "Browser channel for using locally installed browsers. "
-            "Values: chrome | msedge | chrome-beta | msedge-beta. "
-            "Use when playwright install cannot run (no internet / VDI). "
-            "Example: --browser-channel chrome"
-        ),
-    )
-    parser.addoption(
         "--use-remote",
         action="store_true",
         default=False,
-        help="Connect to a remote CDP / Grid endpoint",
+        help="Connect to a remote CDP / Selenium Grid endpoint",
     )
     parser.addoption(
         "--remote-url",
@@ -108,12 +79,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 @pytest.fixture(scope="session")
 def settings(request: pytest.FixtureRequest) -> Settings:
-    """Apply CLI options onto the settings singleton."""
+    """Apply CLI options and env vars onto the settings singleton."""
     s = _settings
-    s.env            = request.config.getoption("--env")
-    s.browser_channel = request.config.getoption("--browser-channel")
-    s.use_remote     = request.config.getoption("--use-remote")
-    s.remote_url     = request.config.getoption("--remote-url")
+    s.env             = request.config.getoption("--env")
+    s.use_remote      = request.config.getoption("--use-remote")
+    s.remote_url      = request.config.getoption("--remote-url")
+    # browser_channel read from .env / environment variable ONLY
+    # not from CLI to avoid conflict with pytest-playwright's own flag
+    s.browser_channel = os.getenv("BROWSER_CHANNEL", "")
     s.screenshot_dir.mkdir(parents=True, exist_ok=True)
     return s
 
@@ -133,11 +106,7 @@ def api_session(
 ) -> Generator[requests.Session, None, None]:
     """
     Authenticated requests.Session with Bearer token.
-
-    Flow:
-        user_details.json → POST /api/auth/token
-        → parse access_token → Authorization: Bearer <token>
-        → inject into requests.Session headers
+    Reads user_details.json → POST /api/auth/token → Bearer token.
     """
     creds_file = settings.user_details_file
     assert creds_file.exists(), (
@@ -145,9 +114,9 @@ def api_session(
         "Create it at config/testdata/user_details.json"
     )
     credentials = json.loads(creds_file.read_text())
-    assert all(k in credentials for k in ("name", "email", "employeeID")), (
-        "user_details.json must contain: name, email, employeeID"
-    )
+    for key in ("name", "email", "employeeID"):
+        assert key in credentials and credentials[key], \
+            f"user_details.json missing or empty field: '{key}'"
 
     token_url = f"{env_cfg.api}{settings.auth_token_path}"
     resp = requests.post(
@@ -156,17 +125,15 @@ def api_session(
         timeout=settings.api_timeout,
         verify=False,
     )
-    assert resp.status_code == 200, (
+    assert resp.status_code == 200, \
         f"POST {token_url} → {resp.status_code}. Body: {resp.text[:300]}"
-    )
+
     data = resp.json()
-    assert "access_token" in data, f"Missing access_token. Got: {data}"
-    assert data.get("token_type", "").lower() == "bearer"
+    assert "access_token" in data,                    f"Missing access_token. Got: {data}"
+    assert data.get("token_type","").lower()=="bearer", f"Expected bearer, got: {data.get('token_type')}"
+    assert data["access_token"],                       "access_token is empty"
 
-    token = data["access_token"]
-    assert token, "access_token is empty"
-    settings.api_token = f"Bearer {token}"
-
+    settings.api_token = f"Bearer {data['access_token']}"
     session = requests.Session()
     session.headers.update({
         "Content-Type":  "application/json",
@@ -174,26 +141,21 @@ def api_session(
         "Authorization": settings.api_token,
     })
     session.verify = False
-    print(f"\n Bearer token: {token[:20]}...")
+    print(f"\n Bearer token: {data['access_token'][:20]}...")
     yield session
     session.close()
 
 
 # ══════════════════════════════════════════════════════════════════
-# BROWSER LAUNCH ARGS  ← THE CORRECT PLACE FOR channel / exe PATH
+# BROWSER LAUNCH ARGS
 #
-# pytest-playwright reads this fixture automatically before launching
-# any browser. Return a dict of kwargs passed to browser_type.launch().
+# pytest-playwright reads `browser_type_launch_args` automatically.
+# This is the correct place to inject channel= so locally installed
+# Chrome or Edge is used instead of Playwright's bundled browser.
 #
-# channel values for locally installed browsers (no playwright install needed):
-#   "chrome"        → uses installed Google Chrome
-#   "msedge"        → uses installed Microsoft Edge
-#   "chrome-beta"   → uses Chrome Beta channel
-#   "msedge-beta"   → uses Edge Beta channel
-#
-# executable_path overrides the channel and points directly at an exe:
-#   PLAYWRIGHT_EXECUTABLE_PATH env var is read automatically by
-#   Playwright itself – no need to pass it here manually.
+# Set BROWSER_CHANNEL in .env (NOT as a CLI flag):
+#   BROWSER_CHANNEL=chrome    → uses installed Google Chrome
+#   BROWSER_CHANNEL=msedge    → uses installed Microsoft Edge
 # ══════════════════════════════════════════════════════════════════
 
 @pytest.fixture(scope="session")
@@ -202,38 +164,13 @@ def browser_type_launch_args(
     settings: Settings,
 ) -> Dict[str, Any]:
     """
-    Override browser launch arguments.
-
-    This is the correct pytest-playwright hook to pass:
-        channel         – use locally installed Chrome / Edge
-        executable_path – use a specific browser executable
-        headless        – already handled by --headed CLI flag
-
-    Priority:
-        1. PLAYWRIGHT_EXECUTABLE_PATH env var (set in .env or system)
-           → Playwright reads this automatically, nothing needed here
-        2. --browser-channel CLI flag or BROWSER_CHANNEL env var
-           → passed as channel= to browser_type.launch()
-        3. Neither set → Playwright uses its bundled browser
-
-    Run commands:
-        # Use installed Chrome:
-        pytest --env dev --browser-channel chrome -v
-
-        # Use installed Edge:
-        pytest --env dev --browser-channel msedge -v
-
-        # Use exe path (via .env):
-        # PLAYWRIGHT_EXECUTABLE_PATH=C:/Program Files/Google/Chrome/Application/chrome.exe
-        pytest --env dev -v
+    Inject channel into browser launch args when BROWSER_CHANNEL is set.
+    pytest-playwright passes whatever this returns to browser_type.launch().
     """
-    launch_args = dict(browser_type_launch_args)  # copy existing args
-
-    # Inject channel if set (use installed Chrome/Edge instead of bundled)
+    launch_args = dict(browser_type_launch_args)
     if settings.browser_channel:
         launch_args["channel"] = settings.browser_channel
         print(f"\n Browser channel: {settings.browser_channel}")
-
     return launch_args
 
 
@@ -248,9 +185,9 @@ def browser_context(
     env_cfg: EnvConfig,
 ) -> Generator[BrowserContext, None, None]:
     """
-    Fresh Playwright BrowserContext per test.
-    Storage tokens are injected via add_init_script so SSO
-    is active before the first page.goto() call.
+    Fresh Playwright BrowserContext per test with SSO tokens injected.
+    Uses pytest-playwright's `browser` fixture so --headed / --browser
+    / --slowmo CLI flags all work correctly.
     """
     context = browser.new_context(
         viewport={
@@ -262,23 +199,21 @@ def browser_context(
     )
     context.set_default_timeout(settings.default_timeout)
     context.set_default_navigation_timeout(settings.page_timeout)
-
     _inject_sso(context, settings, env_cfg)
-
     yield context
     context.close()
 
 
 @pytest.fixture(scope="function")
 def page(browser_context: BrowserContext) -> Generator[Page, None, None]:
-    """Fresh Playwright Page per test. SSO already active via context."""
+    """Fresh Playwright Page. SSO already active via browser_context."""
     p = browser_context.new_page()
     yield p
     p.close()
 
 
 # ══════════════════════════════════════════════════════════════════
-# SSO INJECTION HELPERS
+# SSO INJECTION
 # ══════════════════════════════════════════════════════════════════
 
 def _inject_sso(
@@ -286,14 +221,7 @@ def _inject_sso(
     settings: Settings,
     env_cfg: EnvConfig,
 ) -> None:
-    """
-    Inject SSO auth into the BrowserContext before any test navigates.
-
-    Detection order:
-        1. storage.json → inject localStorage + sessionStorage
-        2. cookies.json → inject session cookies
-        3. neither      → no injection (SSO button click required)
-    """
+    """Auto-detect storage.json or cookies.json and inject SSO."""
     if settings.storage_file.exists():
         _inject_storage(context, settings.storage_file)
     elif settings.cookies_file.exists():
@@ -303,15 +231,10 @@ def _inject_sso(
 
 
 def _inject_storage(context: BrowserContext, storage_file: Path) -> None:
-    """
-    Inject localStorage/sessionStorage via add_init_script.
-    Runs before every page load so tokens are available immediately.
-    json.dumps each value so JWT tokens with dots/quotes are safe.
-    """
+    """Inject localStorage/sessionStorage via add_init_script (runs before every page load)."""
     data    = json.loads(storage_file.read_text())
     ls_data = data.get("localStorage",   {})
     ss_data = data.get("sessionStorage", {})
-
     ls_lines = "\n".join(
         f"  localStorage.setItem({json.dumps(k)}, {json.dumps(v)});"
         for k, v in ls_data.items()
@@ -320,19 +243,15 @@ def _inject_storage(context: BrowserContext, storage_file: Path) -> None:
         f"  sessionStorage.setItem({json.dumps(k)}, {json.dumps(v)});"
         for k, v in ss_data.items()
     )
-    script = f"""
+    context.add_init_script(f"""
 (function() {{
   try {{
 {ls_lines}
 {ss_lines}
-  }} catch(e) {{ console.warn('SSO storage injection failed:', e); }}
+  }} catch(e) {{ console.warn('SSO injection failed:', e); }}
 }})();
-"""
-    context.add_init_script(script)
-    print(
-        f"\n Storage injection: {len(ls_data)} localStorage "
-        f"+ {len(ss_data)} sessionStorage entries"
-    )
+""")
+    print(f"\n Storage injection: {len(ls_data)} localStorage + {len(ss_data)} sessionStorage")
 
 
 def _inject_cookies(
@@ -344,9 +263,7 @@ def _inject_cookies(
     from urllib.parse import urlparse
     hostname = urlparse(base_url).hostname
     raw      = json.loads(cookies_file.read_text())
-    cookies  = [c for c in raw if not c.get("name", "").startswith("_")]
-
-    playwright_cookies = [
+    cookies  = [
         {
             "name":     c["name"],
             "value":    c["value"],
@@ -356,15 +273,16 @@ def _inject_cookies(
             "httpOnly": c.get("httpOnly", False),
             "url":      base_url,
         }
-        for c in cookies
+        for c in raw
+        if not c.get("name", "").startswith("_")
     ]
-    if playwright_cookies:
-        context.add_cookies(playwright_cookies)
-        print(f"\n Cookie injection: {len(playwright_cookies)} cookies")
+    if cookies:
+        context.add_cookies(cookies)
+        print(f"\n Cookie injection: {len(cookies)} cookies")
 
 
 # ══════════════════════════════════════════════════════════════════
-# ALLURE ENVIRONMENT INFO
+# ALLURE ENVIRONMENT
 # ══════════════════════════════════════════════════════════════════
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -374,5 +292,4 @@ def pytest_configure(config: pytest.Config) -> None:
         f"ENV={os.getenv('ENV', 'dev')}\n"
         f"BROWSER={os.getenv('BROWSER', 'chromium')}\n"
         f"CHANNEL={os.getenv('BROWSER_CHANNEL', '')}\n"
-        f"REMOTE={os.getenv('USE_REMOTE', 'false')}\n"
     )

@@ -1,0 +1,24 @@
+# ============================================================
+#  MiO-X Playwright – local environment variables
+#  Never commit this file (it's in .gitignore)
+# ============================================================
+
+# ── Environment ────────────────────────────────────────────
+ENV=dev
+
+# ── Browser channel ────────────────────────────────────────
+# Use this when `playwright install` cannot run (no internet / VDI).
+# Tells Playwright to use your locally installed Chrome or Edge
+# instead of its own bundled browser.
+#
+# Uncomment ONE line:
+# BROWSER_CHANNEL=chrome        ← uses installed Google Chrome
+# BROWSER_CHANNEL=msedge        ← uses installed Microsoft Edge (always on Windows VDI)
+
+# ── Executable path (alternative to channel) ───────────────
+# Use this if channel does not work or you want a specific exe.
+# Playwright reads PLAYWRIGHT_EXECUTABLE_PATH automatically.
+#
+# Uncomment ONE line:
+# PLAYWRIGHT_EXECUTABLE_PATH=C:/Program Files/Google/Chrome/Application/chrome.exe
+# PLAYWRIGHT_EXECUTABLE_PATH=C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe
