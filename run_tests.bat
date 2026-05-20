@@ -1,18 +1,21 @@
 @echo off
 REM ============================================================
-REM  MiO-X Playwright Python Framework – Windows run script
+REM  MiO-X Playwright – Windows run script
 REM
 REM  USAGE:
-REM    run_tests.bat                         all tests, dev, chromium
+REM    run_tests.bat                         all tests, dev
 REM    run_tests.bat --env uat               UAT environment
 REM    run_tests.bat --tags smoke            smoke only
 REM    run_tests.bat --tags auth             auth tests only
-REM    run_tests.bat --tags integrity        integrity tests only
-REM    run_tests.bat --parallel              4 workers in parallel
+REM    run_tests.bat --tags "smoke or auth"  multiple tags
+REM    run_tests.bat --parallel              4 parallel workers
 REM    run_tests.bat --headed                show browser window
-REM    run_tests.bat --browser firefox       use Firefox
 REM    run_tests.bat --remote                use remote Selenium Grid
-REM    run_tests.bat --remote-url http://localhost:4444
+REM
+REM  REPORTS generated in results\:
+REM    results\allure\          raw Allure JSON (used by allure generate)
+REM    results\allure-report\   HTML Allure report (open index.html)
+REM    results\report.html      pytest-html report (no extra tool needed)
 REM ============================================================
 
 setlocal EnableDelayedExpansion
@@ -43,9 +46,19 @@ echo [ERROR] Unknown argument: %~1
 exit /b 1
 :end_parse
 
-REM ── Create output dirs ─────────────────────────────────────
-if not exist "!OUTPUT!\allure"       mkdir "!OUTPUT!\allure"
-if not exist "!OUTPUT!\screenshots"  mkdir "!OUTPUT!\screenshots"
+REM ── Build output paths as separate variables ───────────────
+REM !! IMPORTANT: never use \a \b \n etc inside a set value !!
+REM !! BAT treats backslash-letter as escape in some contexts !!
+REM !! Use separate variables for each path segment instead.  !!
+set ALLURE_RAW=%OUTPUT%\allure
+set ALLURE_HTML=%OUTPUT%\allure-report
+set HTML_REPORT=%OUTPUT%\report.html
+set SCREENSHOTS=%OUTPUT%\screenshots
+
+REM ── Create output directories ──────────────────────────────
+if not exist "!ALLURE_RAW!"   mkdir "!ALLURE_RAW!"
+if not exist "!ALLURE_HTML!"  mkdir "!ALLURE_HTML!"
+if not exist "!SCREENSHOTS!"  mkdir "!SCREENSHOTS!"
 
 REM ── Print config ──────────────────────────────────────────
 echo.
@@ -56,31 +69,33 @@ echo   ENV      : !ENV!
 echo   Browser  : !BROWSER!
 echo   Tags     : !TAGS!
 echo   Parallel : !PARALLEL!
-if "!PARALLEL!"=="True" echo   Workers  : !WORKERS!
 echo   Remote   : !REMOTE!
+echo   Reports  : !ALLURE_HTML!\index.html
+echo              !HTML_REPORT!
 echo ============================================================
 echo.
 
 REM ── Build pytest command ───────────────────────────────────
+REM Allure dir uses the variable NOT a backslash-a path literal
 set BASE_CMD=pytest ^
     --env !ENV! ^
     --browser !BROWSER! ^
     !HEADED! ^
     !REMOTE! ^
     --remote-url !REMOTE_URL! ^
-    --alluredir=!OUTPUT!llure ^
+    --alluredir=!ALLURE_RAW! ^
     --clean-alluredir
 
-REM Add tags
+REM Add tag filter
 if not "!TAGS!"=="" set BASE_CMD=!BASE_CMD! -m "!TAGS!"
 
-REM Add parallel
+REM Add parallel workers
 if "!PARALLEL!"=="True" (
     where pytest-xdist >nul 2>&1
     if !ERRORLEVEL!==0 (
         set BASE_CMD=!BASE_CMD! -n !WORKERS!
     ) else (
-        echo [WARN] pytest-xdist not found. Install: pip install pytest-xdist
+        echo [WARN] pytest-xdist not installed. Run: pip install pytest-xdist
         echo [FALLBACK] Running sequentially...
     )
 )
@@ -90,22 +105,43 @@ echo.
 !BASE_CMD!
 set TEST_EXIT=!ERRORLEVEL!
 
-REM ── Allure report ──────────────────────────────────────────
+REM ── Generate Allure HTML report ────────────────────────────
 echo.
+echo Generating Allure report...
 where allure >nul 2>&1
 if !ERRORLEVEL!==0 (
-    echo Generating Allure report...
-    allure generate !OUTPUT!\allure --clean -o !OUTPUT!\allure-report
-    echo.
-    echo  Allure report : !OUTPUT!\allure-report\index.html
-    echo  Live view     : allure serve !OUTPUT!\allure
+    allure generate "!ALLURE_RAW!" --clean -o "!ALLURE_HTML!"
+    if !ERRORLEVEL!==0 (
+        echo.
+        echo ============================================================
+        echo   REPORTS
+        echo ============================================================
+        echo   Allure HTML  : !ALLURE_HTML!\index.html
+        echo   Allure live  : allure serve !ALLURE_RAW!
+        echo   pytest-html  : !HTML_REPORT!
+        echo   Screenshots  : !SCREENSHOTS!\
+        echo ============================================================
+    ) else (
+        echo [WARN] Allure generation failed.
+    )
 ) else (
-    echo [WARN] allure CLI not found.
-    echo        Install: scoop install allure OR choco install allure
-    echo        HTML report: !OUTPUT!\allure-report
+    echo [WARN] allure CLI not found on PATH.
+    echo        Install with one of:
+    echo          scoop install allure
+    echo          choco install allure
+    echo        After install, re-run: allure generate !ALLURE_RAW! -o !ALLURE_HTML!
+    echo.
+    echo   pytest-html report is still available (no extra tool needed):
+    echo   !HTML_REPORT!
 )
 
+REM ── Result ────────────────────────────────────────────────
 echo.
-if !TEST_EXIT!==0 (echo [RESULT] All tests PASSED) else (echo [RESULT] Tests FAILED - exit: !TEST_EXIT!)
+if !TEST_EXIT!==0 (
+    echo [RESULT] All tests PASSED
+) else (
+    echo [RESULT] Tests FAILED  (exit code: !TEST_EXIT!)
+)
+
 endlocal
 exit /b %TEST_EXIT%

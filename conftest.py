@@ -26,6 +26,7 @@ owns that flag and re-registering it causes:
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, Generator
@@ -42,6 +43,7 @@ try:
 except ImportError:
     pass
 
+import allure
 import pytest
 import requests
 from playwright.sync_api import Browser, BrowserContext, Page
@@ -323,11 +325,91 @@ def _inject_cookies(
 # ALLURE ENVIRONMENT
 # ══════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════
+# REPORTING HOOKS
+# ══════════════════════════════════════════════════════════════════
+
 def pytest_configure(config: pytest.Config) -> None:
-    results_dir = Path("results/allure")
-    results_dir.mkdir(parents=True, exist_ok=True)
-    (results_dir / "environment.properties").write_text(
+    """
+    Called once at startup.
+    Creates results directories and writes Allure environment info.
+    """
+    # Create all report directories up front
+    for d in ("results/allure", "results/screenshots", "results/allure-report"):
+        Path(d).mkdir(parents=True, exist_ok=True)
+
+    # Allure environment.properties – shown on the Allure Overview page
+    allure_dir = Path("results/allure")
+    allure_dir.mkdir(parents=True, exist_ok=True)
+    (allure_dir / "environment.properties").write_text(
         f"ENV={os.getenv('ENV', 'dev')}\n"
+        f"URL={os.getenv('BASE_URL', '')}\n"
         f"BROWSER={os.getenv('BROWSER', 'chromium')}\n"
         f"CHANNEL={os.getenv('BROWSER_CHANNEL', '')}\n"
+        f"HEADLESS={os.getenv('HEADLESS', 'true')}\n"
+        f"INJECT_SSO={os.getenv('INJECT_SSO', 'true')}\n",
+        encoding="utf-8",
     )
+
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:
+    """
+    Called after each test phase (setup / call / teardown).
+
+    On FAILURE:
+        - captures a screenshot from the Playwright page fixture
+        - attaches it to the Allure report
+        - attaches it to the pytest-html report
+        - saves it to results/screenshots/
+
+    Works automatically for any test that uses the `page` fixture.
+    """
+    outcome = yield
+    report  = outcome.get_result()
+
+    # Only act on the actual test call phase, not setup/teardown
+    if report.when != "call":
+        return
+
+    # Try to get the Playwright page from the test's fixtures
+    page = item.funcargs.get("page")
+    if page is None:
+        return  # API-only test, no browser
+
+    if report.failed:
+        # ── Build a safe filename from the test name ──────────────
+        safe_name = re.sub(r"[^\w\-]", "_", item.nodeid.replace("/", "_").replace("\\", "_"))
+        screenshot_path = Path("results/screenshots") / f"FAILED_{safe_name}.png"
+
+        try:
+            # Take screenshot
+            page.screenshot(path=str(screenshot_path), full_page=True)
+
+            # ── Attach to Allure ──────────────────────────────────
+            allure.attach(
+                screenshot_path.read_bytes(),
+                name=f"FAILED – {item.name}",
+                attachment_type=allure.attachment_type.PNG,
+            )
+
+            # ── Attach to pytest-html ─────────────────────────────
+            # pytest-html reads extras from report.extras
+            try:
+                from pytest_html import extras as html_extras
+                if not hasattr(report, "extras"):
+                    report.extras = []
+                report.extras.append(
+                    html_extras.image(str(screenshot_path))
+                )
+            except ImportError:
+                pass  # pytest-html not installed
+
+            print(f"\n Screenshot saved: {screenshot_path}")
+
+        except Exception as e:
+            print(f"\n Could not capture screenshot: {e}")
+
+    elif report.passed:
+        # Optionally attach screenshot on pass too (comment out if not needed)
+        pass
