@@ -164,13 +164,33 @@ def browser_type_launch_args(
     settings: Settings,
 ) -> Dict[str, Any]:
     """
-    Inject channel into browser launch args when BROWSER_CHANNEL is set.
+    Inject browser launch args.
     pytest-playwright passes whatever this returns to browser_type.launch().
+
+    Headless mode:
+        Default  → headless  (no flag needed)
+        --headed → headed    (shows browser window)
+        HEADLESS=false in .env → headed permanently
+
+    Channel (VDI / no internet):
+        BROWSER_CHANNEL=chrome  in .env → uses installed Chrome
+        BROWSER_CHANNEL=msedge  in .env → uses installed Edge
     """
     launch_args = dict(browser_type_launch_args)
+
+    # ── Headless ──────────────────────────────────────────────────
+    # pytest-playwright defaults to headless=True.
+    # --headed CLI flag sets headless=False automatically.
+    # HEADLESS=false in .env also sets headed mode permanently.
+    headless_env = os.getenv("HEADLESS", "true").lower()
+    if headless_env == "false":
+        launch_args["headless"] = False
+
+    # ── Channel (locally installed Chrome / Edge) ─────────────────
     if settings.browser_channel:
         launch_args["channel"] = settings.browser_channel
         print(f"\n Browser channel: {settings.browser_channel}")
+
     return launch_args
 
 
