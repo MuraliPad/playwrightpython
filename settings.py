@@ -23,6 +23,11 @@ class Settings:
     headless:         bool = field(default_factory=lambda: os.getenv("HEADLESS", "false").lower() == "true")
     slow_mo:          int  = 0       # ms between actions, useful for debugging
 
+    # Channel for using locally installed browser (VDI / no internet).
+    # Values: chrome | msedge | chrome-beta | msedge-beta | "" (empty = bundled)
+    # Set via --browser-channel CLI flag or BROWSER_CHANNEL in .env
+    browser_channel:  str  = field(default_factory=lambda: os.getenv("BROWSER_CHANNEL", ""))
+
     # ── Remote (Playwright remote cdp or remote grid) ─────────────
     use_remote:       bool = field(default_factory=lambda: os.getenv("USE_REMOTE", "false").lower() == "true")
     remote_url:       str  = field(default_factory=lambda: os.getenv("REMOTE_URL", "http://localhost:4444/wd/hub"))
