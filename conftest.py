@@ -205,25 +205,61 @@ def browser_context(
     browser: Browser,
     settings: Settings,
     env_cfg: EnvConfig,
+    playwright,                    # pytest-playwright built-in
 ) -> Generator[BrowserContext, None, None]:
     """
-    Fresh Playwright BrowserContext per test with SSO tokens injected.
-    Uses pytest-playwright's `browser` fixture so --headed / --browser
-    / --slowmo CLI flags all work correctly.
+    Fresh Playwright BrowserContext per test.
+
+    LOCAL mode  (USE_REMOTE=false, default):
+        Uses pytest-playwright's built-in `browser` fixture.
+        Respects --headed, --browser, --slowmo, BROWSER_CHANNEL.
+
+    REMOTE mode (USE_REMOTE=true):
+        Connects to a remote Selenium Grid or CDP endpoint via
+        playwright.chromium.connect_over_cdp(REMOTE_URL).
+        Run with:
+            pytest --env dev --use-remote --remote-url ws://host:4444/
+        Or set in .env:
+            USE_REMOTE=true
+            REMOTE_URL=ws://host:4444/
     """
-    context = browser.new_context(
-        viewport={
-            "width":  settings.viewport_width,
-            "height": settings.viewport_height,
-        },
-        base_url=env_cfg.ui,
-        ignore_https_errors=True,
-    )
-    context.set_default_timeout(settings.default_timeout)
-    context.set_default_navigation_timeout(settings.page_timeout)
-    _inject_sso(context, settings, env_cfg)
-    yield context
-    context.close()
+    if settings.use_remote:
+        # ── REMOTE: connect to Selenium Grid / CDP endpoint ───────
+        # Playwright uses WebSocket URL for CDP connections.
+        # Selenium Grid 4: ws://<host>:4444/session
+        # Direct CDP:      ws://<host>:9222/
+        remote_browser = playwright.chromium.connect_over_cdp(
+            settings.remote_url
+        )
+        context = remote_browser.new_context(
+            viewport={
+                "width":  settings.viewport_width,
+                "height": settings.viewport_height,
+            },
+            base_url=env_cfg.ui,
+            ignore_https_errors=True,
+        )
+        context.set_default_timeout(settings.default_timeout)
+        context.set_default_navigation_timeout(settings.page_timeout)
+        _inject_sso(context, settings, env_cfg)
+        yield context
+        context.close()
+        remote_browser.close()
+    else:
+        # ── LOCAL: use pytest-playwright browser fixture ───────────
+        context = browser.new_context(
+            viewport={
+                "width":  settings.viewport_width,
+                "height": settings.viewport_height,
+            },
+            base_url=env_cfg.ui,
+            ignore_https_errors=True,
+        )
+        context.set_default_timeout(settings.default_timeout)
+        context.set_default_navigation_timeout(settings.page_timeout)
+        _inject_sso(context, settings, env_cfg)
+        yield context
+        context.close()
 
 
 @pytest.fixture(scope="function")
