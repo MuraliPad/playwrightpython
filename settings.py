@@ -52,15 +52,15 @@ class Settings:
     )
 
     # ── Remote execution ──────────────────────────────────────────
-    # When True, connects to a remote Grid/CDP instead of local launch.
-    # REMOTE_URL must be a WebSocket URL:
-    #   Selenium Grid 4 : ws://<host>:4444/
-    #   Direct Chrome CDP: ws://<host>:9222/
+    # When True, launches browser via SELENIUM_REMOTE_URL env var
+    # which routes through the Selenium Grid automatically.
+    # REMOTE_URL accepts plain http:// URLs – no ws:// conversion needed.
+    # Example: http://alm-seleniumgrid-uat1.systems.uk.hsbc:4478/wd/hub
     use_remote: bool = field(
         default_factory=lambda: os.getenv("USE_REMOTE", "false").lower() == "true"
     )
     remote_url: str = field(
-        default_factory=lambda: os.getenv("REMOTE_URL", "ws://localhost:4444/")
+        default_factory=lambda: os.getenv("REMOTE_URL", "http://localhost:4444/wd/hub")
     )
 
     # ── SSO injection ─────────────────────────────────────────────

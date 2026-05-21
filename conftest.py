@@ -57,21 +57,31 @@ from config.settings import Settings, settings as _settings
 # ══════════════════════════════════════════════════════════════════
 
 def pytest_addoption(parser: pytest.Parser) -> None:
+    """
+    Register custom CLI options.
+
+    Defaults come from settings.py (which reads .env / env vars).
+    CLI flags override them at runtime.
+    No URL or credential values are hardcoded here.
+    """
     parser.addoption(
         "--env",
-        default=os.getenv("ENV", "dev"),
-        help="Target environment: dev | sit | uat | prod",
+        default=_settings.env,
+        help="Target environment: dev | sit | uat | prod  (default from ENV in .env)",
     )
     parser.addoption(
         "--use-remote",
         action="store_true",
-        default=False,
-        help="Connect to a remote CDP / Selenium Grid endpoint",
+        default=_settings.use_remote,
+        help="Connect to remote Grid/CDP. Set REMOTE_URL in .env for the endpoint.",
     )
     parser.addoption(
         "--remote-url",
-        default=os.getenv("REMOTE_URL", "http://localhost:4444/wd/hub"),
-        help="Remote Grid URL (used with --use-remote)",
+        default=_settings.remote_url,
+        help=(
+            "Remote WebSocket URL. Must be ws:// not http://. "
+            "Default read from REMOTE_URL in .env"
+        ),
     )
 
 
@@ -215,21 +225,24 @@ def browser_context(
         Respects --headed, --browser, --slowmo, BROWSER_CHANNEL.
 
     REMOTE mode (USE_REMOTE=true):
-        Connects to a remote Selenium Grid or CDP endpoint via
-        playwright.chromium.connect_over_cdp(REMOTE_URL).
+        Launches browser via SELENIUM_REMOTE_URL env var which routes
+        through the Selenium Grid. Accepts plain http:// URLs.
         Run with:
-            pytest --env dev --use-remote --remote-url ws://host:4444/
+            pytest --env dev --use-remote --remote-url http://grid-host:4444/wd/hub
         Or set in .env:
             USE_REMOTE=true
-            REMOTE_URL=ws://host:4444/
+            REMOTE_URL=http://grid-host:4444/wd/hub
     """
     if settings.use_remote:
-        # ── REMOTE: connect to Selenium Grid / CDP endpoint ───────
-        # Playwright uses WebSocket URL for CDP connections.
-        # Selenium Grid 4: ws://<host>:4444/session
-        # Direct CDP:      ws://<host>:9222/
-        remote_browser = playwright.chromium.connect_over_cdp(
-            settings.remote_url
+        # ── REMOTE: launch via SELENIUM_REMOTE_URL env var ────────
+        # Playwright reads SELENIUM_REMOTE_URL from the launch env dict
+        # and routes the browser through the Selenium Grid automatically.
+        # Accepts plain http:// URLs – no WebSocket conversion needed.
+        # This avoids the ws:// protocol mismatch that causes:
+        #   "WebSocket error: getaddrinfo ENOTFOUND"
+        print(f"\n Remote Grid: {settings.remote_url}")
+        remote_browser = playwright.chromium.launch(
+            env={"SELENIUM_REMOTE_URL": settings.remote_url}
         )
         context = remote_browser.new_context(
             viewport={
