@@ -28,7 +28,9 @@ set TAGS=
 set PARALLEL=False
 set WORKERS=4
 set REMOTE=
-set REMOTE_URL=http://localhost:4444/wd/hub
+REM REMOTE_URL default comes from .env (REMOTE_URL=ws://...).
+REM Override here only when passing --remote-url on the CLI.
+set REMOTE_URL=
 set OUTPUT=results
 
 REM ── Argument parser ───────────────────────────────────────
@@ -82,9 +84,11 @@ set BASE_CMD=pytest ^
     --browser !BROWSER! ^
     !HEADED! ^
     !REMOTE! ^
-    --remote-url !REMOTE_URL! ^
     --alluredir=!ALLURE_RAW! ^
     --clean-alluredir
+
+REM Only pass --remote-url if explicitly set on CLI (otherwise .env value is used)
+if not "!REMOTE_URL!"=="" set BASE_CMD=!BASE_CMD! --remote-url !REMOTE_URL!
 
 REM Add tag filter
 if not "!TAGS!"=="" set BASE_CMD=!BASE_CMD! -m "!TAGS!"

@@ -6,19 +6,35 @@
 # ── Environment ────────────────────────────────────────────
 ENV=dev
 
+# ── SSO injection ──────────────────────────────────────────
+# true  = inject localStorage/cookie tokens into browser
+#         Use when: remote Grid, Jenkins, any fresh browser
+# false = skip injection, browser already has SSO session
+#         Use when: local run with BROWSER_CHANNEL=chrome/msedge
+#         and your Chrome/Edge is already logged in via SSO
+INJECT_SSO=false
+
+# ── Headless mode ──────────────────────────────────────────
+# true  = headless, no browser window shown (default)
+# false = headed, shows browser window (useful for debugging)
+HEADLESS=true
+
 # ── Browser channel ────────────────────────────────────────
-# Use this when `playwright install` cannot run (no internet / VDI).
-# Tells Playwright to use your locally installed Chrome or Edge
-# instead of its own bundled browser.
-#
-# Uncomment ONE line:
-# BROWSER_CHANNEL=chrome        ← uses installed Google Chrome
-# BROWSER_CHANNEL=msedge        ← uses installed Microsoft Edge (always on Windows VDI)
+# Uncomment ONE to use locally installed browser (VDI / no internet):
+# BROWSER_CHANNEL=chrome        uses installed Google Chrome
+# BROWSER_CHANNEL=msedge        uses installed Microsoft Edge
 
 # ── Executable path (alternative to channel) ───────────────
-# Use this if channel does not work or you want a specific exe.
-# Playwright reads PLAYWRIGHT_EXECUTABLE_PATH automatically.
-#
-# Uncomment ONE line:
+# Uncomment ONE if channel does not work:
 # PLAYWRIGHT_EXECUTABLE_PATH=C:/Program Files/Google/Chrome/Application/chrome.exe
 # PLAYWRIGHT_EXECUTABLE_PATH=C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe
+
+# ── Remote execution ───────────────────────────────────────
+# Set USE_REMOTE=true to connect to a remote Selenium Grid or CDP.
+# IMPORTANT: REMOTE_URL must be a WebSocket (ws://) URL for Playwright.
+#   Selenium Grid 4:  ws://<grid-host>:4444/
+#   Direct Chrome CDP: ws://<host>:9222/
+#
+# http:// URLs are NOT supported by Playwright connect_over_cdp().
+USE_REMOTE=false
+REMOTE_URL=ws://localhost:4444/
