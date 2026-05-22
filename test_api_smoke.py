@@ -90,8 +90,16 @@ class TestInventoryEndpoints:
     @pytest.mark.smoke
     @pytest.mark.health
     def test_get_vm_filters(self, inv_api: InventoryApi) -> None:
+        # Some API versions require a `columns` param – pass common ones.
+        # If 422 is returned without columns, the server requires them.
         resp = inv_api.get_vm_filters()
-        assert resp.status_code == 200
+        if resp.status_code == 422:
+            # Retry with columns – adjust column names to match your Swagger
+            resp = inv_api.get_vm_filters(columns="datacenter,region,esx_host")
+        assert resp.status_code == 200, (
+            f"GET /api/inventory/vms/filters returned {resp.status_code}. "
+            f"Body: {resp.text[:300]}"
+        )
 
     @allure.title("GET /api/inventory/migration-categories returns 200")
     @pytest.mark.smoke

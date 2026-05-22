@@ -30,11 +30,11 @@ HEADLESS=true
 # PLAYWRIGHT_EXECUTABLE_PATH=C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe
 
 # ── Remote execution ───────────────────────────────────────
-# Set USE_REMOTE=true to connect to a remote Selenium Grid or CDP.
-# IMPORTANT: REMOTE_URL must be a WebSocket (ws://) URL for Playwright.
-#   Selenium Grid 4:  ws://<grid-host>:4444/
-#   Direct Chrome CDP: ws://<host>:9222/
+# Set USE_REMOTE=true to run tests against a Selenium Grid.
+# Playwright launches via SELENIUM_REMOTE_URL env var which
+# accepts plain http:// URLs – no ws:// conversion needed.
 #
-# http:// URLs are NOT supported by Playwright connect_over_cdp().
+# Example (your HSBC grid):
+# REMOTE_URL=http://alm-seleniumgrid-uat1.systems.uk.hsbc:4478/wd/hub
 USE_REMOTE=false
-REMOTE_URL=ws://localhost:4444/
+REMOTE_URL=http://localhost:4444/wd/hub
