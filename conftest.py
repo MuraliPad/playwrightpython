@@ -443,13 +443,22 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:
             )
 
             # ── Attach to pytest-html ─────────────────────────────
-            # pytest-html reads extras from report.extras
+            # Embed screenshot as base64 directly in report.html so
+            # there are no relative path issues regardless of where
+            # report.html is opened from.
             try:
+                import base64
                 from pytest_html import extras as html_extras
                 if not hasattr(report, "extras"):
                     report.extras = []
+                # base64 encode the image and embed as inline data URI
+                img_base64 = base64.b64encode(
+                    screenshot_path.read_bytes()
+                ).decode("utf-8")
                 report.extras.append(
-                    html_extras.image(str(screenshot_path))
+                    html_extras.image(
+                        f"data:image/png;base64,{img_base64}"
+                    )
                 )
             except ImportError:
                 pass  # pytest-html not installed
